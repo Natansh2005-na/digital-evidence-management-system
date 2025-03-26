@@ -1,0 +1,196 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <!-- Evidence Details -->
+        <div class="col-md-8">
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                    <h4 class="mb-0">{{ evidence.title }}</h4>
+                    <span class="badge bg-light text-primary">{{ evidence.evidence_type }}</span>
+                </div>
+                <div class="card-body">
+                    <div class="mb-4">
+                        <h5>Description</h5>
+                        <p class="text-muted">{{ evidence.description }}</p>
+                    </div>
+
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <h5>Case Information</h5>
+                            <p class="mb-1"><strong>Case Number:</strong> {{ evidence.case_number }}</p>
+                            <p class="mb-1"><strong>Uploaded By:</strong> {{ evidence.uploaded_by.get_full_name|default:evidence.uploaded_by.username }}</p>
+                            <p class="mb-1"><strong>Upload Date:</strong> {{ evidence.upload_date|date:"F d, Y H:i" }}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <h5>File Information</h5>
+                            <p class="mb-1"><strong>File Size:</strong> {{ evidence.file_size|filesizeformat }}</p>
+                            <p class="mb-1"><strong>File Type:</strong> {{ evidence.mime_type }}</p>
+                            <p class="mb-1"><strong>Hash:</strong> <code>{{ evidence.file_hash }}</code></p>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <h5>File Preview</h5>
+                        {% if evidence.evidence_type == 'VIDEO' %}
+                        <div class="ratio ratio-16x9">
+                            <video controls>
+                                <source src="{% url 'evidence-stream' evidence.pk %}" type="{{ evidence.mime_type }}">
+                                Your browser does not support the video tag.
+                            </video>
+                        </div>
+                        {% elif evidence.evidence_type == 'IMAGE' %}
+                        <img src="{{ evidence.file.url }}" class="img-fluid" alt="{{ evidence.title }}">
+                        {% elif evidence.evidence_type == 'AUDIO' %}
+                        <audio controls>
+                            <source src="{{ evidence.file.url }}" type="{{ evidence.mime_type }}">
+                            Your browser does not support the audio tag.
+                        </audio>
+                        {% else %}
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            Preview not available for this file type.
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <a href="{{ evidence.file.url }}" class="btn btn-primary" download>
+                            <i class="fas fa-download me-2"></i>Download
+                        </a>
+                        <button class="btn btn-outline-primary" onclick="verifyIntegrity()">
+                            <i class="fas fa-shield-alt me-2"></i>Verify Integrity
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Audit Trail -->
+            <div class="card">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-history me-2"></i>Audit Trail
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Date/Time</th>
+                                    <th>User</th>
+                                    <th>Action</th>
+                                    <th>Details</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for log in evidence.auditlog_set.all %}
+                                <tr>
+                                    <td>{{ log.timestamp|date:"Y-m-d H:i" }}</td>
+                                    <td>{{ log.user.username }}</td>
+                                    <td>{{ log.action }}</td>
+                                    <td>{{ log.details }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Access Control -->
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-users me-2"></i>Access Control
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form method="post" action="{% url 'grant-access' evidence.pk %}">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <label for="user" class="form-label">Grant Access To</label>
+                            <select class="form-select" id="user" name="user" required>
+                                <option value="">Select user...</option>
+                                {% for user in available_users %}
+                                <option value="{{ user.id }}">{{ user.get_full_name|default:user.username }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="access_level" class="form-label">Access Level</label>
+                            <select class="form-select" id="access_level" name="access_level" required>
+                                <option value="VIEW">View Only</option>
+                                <option value="DOWNLOAD">Download</option>
+                                <option value="SHARE">Share</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="expiry_date" class="form-label">Expiry Date (Optional)</label>
+                            <input type="date" class="form-control" id="expiry_date" name="expiry_date">
+                        </div>
+
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="fas fa-user-plus me-2"></i>Grant Access
+                        </button>
+                    </form>
+
+                    <hr>
+
+                    <h6>Current Access</h6>
+                    <div class="list-group">
+                        {% for access in evidence.evidenceaccess_set.all %}
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="mb-1">{{ access.user.get_full_name|default:access.user.username }}</h6>
+                                    <small class="text-muted">{{ access.access_level }}</small>
+                                </div>
+                                <form method="post" action="{% url 'revoke-access' access.pk %}" class="d-inline">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-sm btn-danger">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                        {% empty %}
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            No users have been granted access yet.
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const evidenceId = "{{ evidence.pk }}";
+
+function verifyIntegrity() {
+    fetch(`/api/evidence/${evidenceId}/verify_integrity/`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.is_valid) {
+                alert('File integrity verified successfully!');
+            } else {
+                alert('Warning: File integrity check failed! The file may have been tampered with.');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error verifying file integrity');
+        });
+}
+</script>
+{% endblock %} 
